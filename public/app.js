@@ -483,6 +483,13 @@ function setupViewerWebRTC(streamId) {
         viewerPeerConnection.close();
     }
     
+    // Reset video element
+    const remoteVideo = document.getElementById('remoteVideo');
+    if (remoteVideo) {
+        remoteVideo.srcObject = null;
+        remoteVideo.load(); // Reset video element
+    }
+    
     viewerPeerConnection = new RTCPeerConnection({
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -491,16 +498,10 @@ function setupViewerWebRTC(streamId) {
     });
     
     // Handle remote stream
+    let streamReceived = false;
+    let playAttempted = false;
     viewerPeerConnection.ontrack = (event) => {
         console.log('🎥 Viewer received track:', event.track.kind, 'State:', event.track.readyState);
-        console.log('Event streams:', event.streams?.length || 0);
-        console.log('Track details:', {
-            kind: event.track.kind,
-            id: event.track.id,
-            enabled: event.track.enabled,
-            muted: event.track.muted,
-            readyState: event.track.readyState
-        });
         
         const remoteVideo = document.getElementById('remoteVideo');
         if (!remoteVideo) {
@@ -508,45 +509,89 @@ function setupViewerWebRTC(streamId) {
             return;
         }
         
-        if (event.streams && event.streams.length > 0) {
-            const stream = event.streams[0];
-            console.log('✅ Using stream from event, tracks:', stream.getTracks().map(t => `${t.kind} (${t.readyState})`));
-            remoteVideo.srcObject = stream;
-            
-            // Ensure video plays
-            remoteVideo.play().then(() => {
-                console.log('✅ Video playing successfully');
-            }).catch(error => {
-                console.error('❌ Error playing video:', error);
-                // Try again after a short delay
-                setTimeout(() => {
-                    remoteVideo.play().then(() => {
-                        console.log('✅ Video playing after retry');
-                    }).catch(err => {
-                        console.error('❌ Retry play failed:', err);
-                    });
-                }, 500);
-            });
-        } else if (event.track) {
-            // Fallback: create a new stream from the track
-            console.log('📹 Creating stream from single track');
-            if (!remoteVideo.srcObject) {
-                const stream = new MediaStream();
-                stream.addTrack(event.track);
-                remoteVideo.srcObject = stream;
-                console.log('✅ Created new stream with track');
-                remoteVideo.play().then(() => {
-                    console.log('✅ Video playing from new stream');
-                }).catch(error => {
-                    console.error('❌ Error playing video:', error);
-                });
-            } else {
-                // Add track to existing stream
-                console.log('➕ Adding track to existing stream');
+        // Prevent multiple play attempts
+        if (streamReceived && remoteVideo.srcObject) {
+            console.log('📹 Stream already set, adding track to existing stream');
+            if (event.track && !remoteVideo.srcObject.getTracks().find(t => t.id === event.track.id)) {
                 remoteVideo.srcObject.addTrack(event.track);
             }
-        } else {
+            return;
+        }
+        
+        let stream = null;
+        
+        if (event.streams && event.streams.length > 0) {
+            stream = event.streams[0];
+            console.log('✅ Using stream from event, tracks:', stream.getTracks().map(t => `${t.kind} (${t.readyState})`));
+        } else if (event.track) {
+            // Create stream from track
+            stream = new MediaStream();
+            stream.addTrack(event.track);
+            console.log('📹 Created stream from track');
+        }
+        
+        if (!stream) {
             console.warn('⚠️ No stream or track in event');
+            return;
+        }
+        
+        // Set stream only once
+        if (!streamReceived) {
+            streamReceived = true;
+            remoteVideo.srcObject = stream;
+            console.log('✅ Stream set to video element');
+            
+            // Wait for video to be ready, then play (only once)
+            const playVideo = () => {
+                if (playAttempted) {
+                    return; // Already attempted
+                }
+                
+                playAttempted = true;
+                
+                // Use canplay event for better reliability
+                const attemptPlay = () => {
+                    remoteVideo.play().then(() => {
+                        console.log('✅ Video playing successfully');
+                    }).catch(error => {
+                        console.error('❌ Error playing video:', error.name, error.message);
+                        playAttempted = false; // Allow retry
+                        // For AbortError, try again after a moment
+                        if (error.name === 'AbortError') {
+                            setTimeout(() => {
+                                if (!playAttempted) {
+                                    playAttempted = true;
+                                    remoteVideo.play().catch(err => {
+                                        console.error('❌ Retry play failed:', err);
+                                        playAttempted = false;
+                                    });
+                                }
+                            }, 500);
+                        }
+                    });
+                };
+                
+                if (remoteVideo.readyState >= 2) {
+                    attemptPlay();
+                } else {
+                    remoteVideo.addEventListener('canplay', attemptPlay, { once: true });
+                    // Fallback timeout
+                    setTimeout(() => {
+                        if (!playAttempted && remoteVideo.readyState >= 2) {
+                            attemptPlay();
+                        }
+                    }, 1000);
+                }
+            };
+            
+            // Try to play after stream is set
+            setTimeout(playVideo, 100);
+        } else {
+            // Add track to existing stream
+            if (event.track && !remoteVideo.srcObject.getTracks().find(t => t.id === event.track.id)) {
+                remoteVideo.srcObject.addTrack(event.track);
+                console.log('➕ Added track to existing stream');
+            }
         }
     };
     
