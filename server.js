@@ -134,19 +134,29 @@ io.on('connection', (socket) => {
 
   // WebRTC signaling - Offer
   socket.on('offer', (data) => {
-    socket.to(data.streamId).emit('offer', {
-      offer: data.offer,
-      viewerId: socket.id,
-      streamId: data.streamId
-    });
+    // Get the streamer's socket ID for this stream
+    const streamerId = streamers.get(data.streamId);
+    if (streamerId) {
+      // Send offer directly to the streamer
+      io.to(streamerId).emit('offer', {
+        offer: data.offer,
+        viewerId: socket.id,
+        streamId: data.streamId
+      });
+      console.log(`Offer forwarded from viewer ${socket.id} to streamer ${streamerId} for stream ${data.streamId}`);
+    } else {
+      console.error(`No streamer found for stream ${data.streamId}`);
+    }
   });
 
   // WebRTC signaling - Answer
   socket.on('answer', (data) => {
+    console.log(`Answer received from streamer ${socket.id} for viewer ${data.viewerId}`);
     socket.to(data.viewerId).emit('answer-viewer', {
       answer: data.answer,
       streamerId: socket.id
     });
+    console.log(`Answer forwarded to viewer ${data.viewerId}`);
   });
 
   // WebRTC signaling - ICE Candidate

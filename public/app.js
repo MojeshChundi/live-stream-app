@@ -257,28 +257,60 @@ stopStreamBtn.addEventListener('click', () => {
     currentStreamId = null;
 });
 
-// Setup WebRTC for streamer (only set up once)
-let streamerWebRTCSetup = false;
-
+// Setup WebRTC for streamer - ALWAYS listen for offers when streaming
 function setupStreamerWebRTC() {
-    if (streamerWebRTCSetup) return; // Only set up once
-    streamerWebRTCSetup = true;
+    // Remove any existing handlers to avoid duplicates
+    socket.off('offer');
     
-    socket.off('offer').on('offer', async (data) => {
+    // Set up offer handler - this will be called whenever a viewer sends an offer
+    socket.on('offer', async (data) => {
+        console.log('📨 Streamer received offer event:', data);
         const { offer, viewerId, streamId } = data;
         
-        // Verify this offer is for our stream
-        if (streamId !== currentStreamId) {
-            console.log('⚠️ Offer received for different stream, ignoring');
+        // Only process if we're currently streaming
+        if (!isStreaming) {
+            console.log('⚠️ Received offer but not currently streaming');
             return;
         }
         
-        if (!viewerId || !localStream) {
-            console.error('❌ Missing viewerId or localStream', { viewerId, hasLocalStream: !!localStream });
+        // Verify this offer is for our stream
+        if (streamId !== currentStreamId) {
+            console.log('⚠️ Offer received for different stream. Current:', currentStreamId, 'Received:', streamId);
+            return;
+        }
+        
+        if (!viewerId) {
+            console.error('❌ Missing viewerId in offer');
+            return;
+        }
+        
+        // Get localStream from video element if not in variable
+        let streamToUse = localStream;
+        if (!streamToUse) {
+            const localVideoEl = document.getElementById('localVideo');
+            if (localVideoEl && localVideoEl.srcObject) {
+                streamToUse = localVideoEl.srcObject;
+                console.log('📹 Retrieved stream from video element');
+            }
+        }
+        
+        if (!streamToUse) {
+            console.error('❌ Missing localStream. Is camera active?', {
+                hasLocalStream: !!localStream,
+                hasVideoElement: !!document.getElementById('localVideo'),
+                videoSrcObject: !!document.getElementById('localVideo')?.srcObject
+            });
+            return;
+        }
+        
+        // Check if we already have a connection for this viewer
+        if (peerConnections.has(viewerId)) {
+            console.log('⚠️ Already have connection for viewer:', viewerId);
             return;
         }
         
         console.log('✅ Streamer received offer from viewer:', viewerId, 'for stream:', streamId);
+        console.log('📹 Local stream tracks:', streamToUse.getTracks().map(t => `${t.kind} (${t.readyState})`));
         
         const peerConnection = new RTCPeerConnection({
             iceServers: [
@@ -288,18 +320,32 @@ function setupStreamerWebRTC() {
         });
         
         // Add local stream tracks BEFORE setting remote description
-        localStream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, localStream);
-            console.log('Added track:', track.kind);
+        streamToUse.getTracks().forEach(track => {
+            peerConnection.addTrack(track, streamToUse);
+            console.log('Added track:', track.kind, 'State:', track.readyState);
         });
         
         // Connection state monitoring
         peerConnection.onconnectionstatechange = () => {
             console.log('Streamer connection state:', peerConnection.connectionState);
+            if (peerConnection.connectionState === 'connected') {
+                console.log('✅ Streamer WebRTC connected to viewer');
+            } else if (peerConnection.connectionState === 'failed') {
+                console.error('❌ Streamer WebRTC connection failed');
+            }
         };
         
         peerConnection.oniceconnectionstatechange = () => {
             console.log('Streamer ICE connection state:', peerConnection.iceConnectionState);
+            if (peerConnection.iceConnectionState === 'connected') {
+                console.log('✅ Streamer ICE connected');
+            } else if (peerConnection.iceConnectionState === 'failed') {
+                console.error('❌ Streamer ICE connection failed');
+            }
+        };
+        
+        peerConnection.onicegatheringstatechange = () => {
+            console.log('Streamer ICE gathering state:', peerConnection.iceGatheringState);
         };
         
         // Handle ICE candidates
@@ -314,19 +360,47 @@ function setupStreamerWebRTC() {
         };
         
         try {
+            console.log('📝 Streamer setting remote description...');
+            if (!offer || !offer.type) {
+                console.error('❌ Invalid offer received:', offer);
+                return;
+            }
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
+            console.log('✅ Streamer set remote description');
             
+            console.log('📝 Streamer creating answer...');
+            const answer = await peerConnection.createAnswer();
+            console.log('✅ Streamer created answer:', answer.type);
+            
+            console.log('📝 Streamer setting local description...');
+            await peerConnection.setLocalDescription(answer);
+            console.log('✅ Streamer set local description');
+            
+            console.log('📤 Streamer sending answer to viewer:', viewerId);
             socket.emit('answer', {
                 answer: answer,
                 viewerId: viewerId
             });
+            console.log('✅ Answer emit called for viewer:', viewerId);
             
             peerConnections.set(viewerId, peerConnection);
-            console.log('Streamer sent answer to viewer:', viewerId);
+            console.log('✅ Streamer sent answer to viewer:', viewerId, 'Connection stored');
         } catch (error) {
-            console.error('Error handling offer:', error);
+            console.error('❌ Error handling offer:', error);
+            console.error('Error details:', {
+                message: error.message,
+                name: error.name,
+                stack: error.stack
+            });
+            // Try to send error to viewer
+            try {
+                socket.emit('webrtc-error', {
+                    viewerId: viewerId,
+                    error: error.message
+                });
+            } catch (e) {
+                console.error('Failed to send error to viewer:', e);
+            }
         }
     });
     
@@ -483,6 +557,15 @@ function setupViewerWebRTC(streamId) {
     
     viewerPeerConnection.oniceconnectionstatechange = () => {
         console.log('Viewer ICE connection state:', viewerPeerConnection.iceConnectionState);
+        if (viewerPeerConnection.iceConnectionState === 'connected') {
+            console.log('✅ WebRTC connection established!');
+        } else if (viewerPeerConnection.iceConnectionState === 'failed') {
+            console.error('❌ WebRTC connection failed');
+        }
+    };
+    
+    viewerPeerConnection.onicegatheringstatechange = () => {
+        console.log('Viewer ICE gathering state:', viewerPeerConnection.iceGatheringState);
     };
     
     // Handle ICE candidates
