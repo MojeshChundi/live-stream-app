@@ -257,12 +257,30 @@ nav {
     cursor: pointer;
     transition: all 0.3s;
     border: 2px solid transparent;
+    position: relative;
+}
+
+.stream-card::before {
+    content: '▶️ Click to Watch';
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 12px;
+    color: #667eea;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.stream-card:hover::before {
+    opacity: 1;
 }
 
 .stream-card:hover {
     transform: translateY(-5px);
     box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
     border-color: #667eea;
+    background: #ffffff;
 }
 
 .stream-card h3 {

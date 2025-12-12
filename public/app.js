@@ -1,5 +1,24 @@
 // Socket.io connection
-const socket = io();
+// Auto-detect the server URL (works for both localhost and production)
+const socket = io({
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionAttempts: 5
+});
+
+// Connection event handlers
+socket.on('connect', () => {
+  console.log('✅ Connected to server:', socket.id);
+});
+
+socket.on('disconnect', () => {
+  console.log('❌ Disconnected from server');
+});
+
+socket.on('connect_error', (error) => {
+  console.error('❌ Connection error:', error);
+});
 
 // Global state
 let currentStreamId = null;
@@ -343,8 +362,24 @@ function displayStreams(streams) {
             <h3>${stream.title}</h3>
             <p>Streamer: ${stream.streamer}</p>
             <p class="viewers">👁️ ${stream.viewers} viewers</p>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e0e0e0;">
+                <button class="btn btn-primary" style="width: 100%; margin-top: 5px;">Watch Live Stream</button>
+            </div>
         `;
-        streamCard.addEventListener('click', () => watchStream(stream));
+        streamCard.addEventListener('click', (e) => {
+            // Don't trigger if clicking the button (it will bubble up)
+            if (e.target.tagName !== 'BUTTON') {
+                watchStream(stream);
+            }
+        });
+        // Also add click handler to the button
+        const button = streamCard.querySelector('button');
+        if (button) {
+            button.addEventListener('click', (e) => {
+                e.stopPropagation();
+                watchStream(stream);
+            });
+        }
         streamsList.appendChild(streamCard);
     });
 }
