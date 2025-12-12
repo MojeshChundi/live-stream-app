@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Streaming Platform</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎥 Live Streaming Platform</h1>
+            <nav>
+                <button id="homeBtn" class="nav-btn active">Home</button>
+                <button id="streamBtn" class="nav-btn">Go Live</button>
+                <button id="watchBtn" class="nav-btn">Watch Streams</button>
+            </nav>
+        </header>
+
+        <!-- Home View -->
+        <div id="homeView" class="view active">
+            <div class="welcome-section">
+                <h2>Welcome to Live Streaming Platform</h2>
+                <p>Stream your content live or watch others stream in real-time</p>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="showView('streamView')">Start Streaming</button>
+                    <button class="btn btn-secondary" onclick="showView('watchView')">Browse Streams</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stream View -->
+        <div id="streamView" class="view">
+            <div class="stream-section">
+                <h2>Start Your Stream</h2>
+                <div id="permissionStatus" class="permission-status" style="display: none;">
+                    <p id="permissionMessage"></p>
+                </div>
+                <div class="form-group">
+                    <label for="streamTitle">Stream Title:</label>
+                    <input type="text" id="streamTitle" placeholder="Enter stream title" value="My Live Stream">
+                </div>
+                <div class="form-group">
+                    <label for="streamerName">Your Name:</label>
+                    <input type="text" id="streamerName" placeholder="Enter your name" value="Streamer">
+                </div>
+                <div class="permission-help">
+                    <p>💡 <strong>First time?</strong> Your browser will ask for camera and microphone permissions. Click "Allow" to start streaming.</p>
+                </div>
+                <button class="btn btn-primary" id="startStreamBtn">Start Streaming</button>
+                <button class="btn btn-danger" id="stopStreamBtn" style="display: none;">Stop Streaming</button>
+                
+                <div id="streamContainer" style="display: none; margin-top: 20px;">
+                    <video id="localVideo" autoplay muted playsinline></video>
+                    <div class="stream-info">
+                        <p>Stream ID: <span id="currentStreamId"></span></p>
+                        <p>Viewers: <span id="viewerCount">0</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Watch View -->
+        <div id="watchView" class="view">
+            <div class="watch-section">
+                <h2>Available Streams</h2>
+                <button class="btn btn-secondary" id="refreshStreamsBtn">Refresh</button>
+                <div id="streamsList" class="streams-grid"></div>
+            </div>
+        </div>
+
+        <!-- Viewer Modal -->
+        <div id="viewerModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2 id="viewerStreamTitle"></h2>
+                <div class="video-container">
+                    <video id="remoteVideo" autoplay playsinline muted></video>
+                </div>
+                <div class="viewer-info">
+                    <p>Streamer: <span id="viewerStreamer"></span></p>
+                    <p>Viewers: <span id="viewerViewerCount">0</span></p>
+                </div>
+                <div class="chat-section">
+                    <div id="chatMessages" class="chat-messages"></div>
+                    <div class="chat-input">
+                        <input type="text" id="chatInput" placeholder="Type a message...">
+                        <button id="sendChatBtn">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+

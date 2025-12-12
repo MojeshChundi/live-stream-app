@@ -1,0 +1,26 @@
+{
+  "name": "live-streaming-platform",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "keep-alive": "node keep-alive.js"
+  },
+  "keywords": ["streaming", "webrtc", "video", "live"],
+  "author": "",
+  "license": "ISC",
+  "description": "Live video streaming platform using Node.js and WebRTC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1",
+    "openai": "^6.10.0",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
