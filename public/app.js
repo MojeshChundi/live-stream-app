@@ -265,14 +265,20 @@ function setupStreamerWebRTC() {
     streamerWebRTCSetup = true;
     
     socket.off('offer').on('offer', async (data) => {
-        const { offer, viewerId } = data;
+        const { offer, viewerId, streamId } = data;
         
-        if (!viewerId || !localStream) {
-            console.error('Missing viewerId or localStream');
+        // Verify this offer is for our stream
+        if (streamId !== currentStreamId) {
+            console.log('⚠️ Offer received for different stream, ignoring');
             return;
         }
         
-        console.log('Streamer received offer from viewer:', viewerId);
+        if (!viewerId || !localStream) {
+            console.error('❌ Missing viewerId or localStream', { viewerId, hasLocalStream: !!localStream });
+            return;
+        }
+        
+        console.log('✅ Streamer received offer from viewer:', viewerId, 'for stream:', streamId);
         
         const peerConnection = new RTCPeerConnection({
             iceServers: [
@@ -412,36 +418,61 @@ function setupViewerWebRTC(streamId) {
     
     // Handle remote stream
     viewerPeerConnection.ontrack = (event) => {
-        console.log('Viewer received track:', event.track.kind, event.track);
-        console.log('Event streams:', event.streams);
+        console.log('🎥 Viewer received track:', event.track.kind, 'State:', event.track.readyState);
+        console.log('Event streams:', event.streams?.length || 0);
+        console.log('Track details:', {
+            kind: event.track.kind,
+            id: event.track.id,
+            enabled: event.track.enabled,
+            muted: event.track.muted,
+            readyState: event.track.readyState
+        });
+        
+        const remoteVideo = document.getElementById('remoteVideo');
+        if (!remoteVideo) {
+            console.error('❌ remoteVideo element not found!');
+            return;
+        }
         
         if (event.streams && event.streams.length > 0) {
             const stream = event.streams[0];
+            console.log('✅ Using stream from event, tracks:', stream.getTracks().map(t => `${t.kind} (${t.readyState})`));
             remoteVideo.srcObject = stream;
-            console.log('Set video srcObject, tracks:', stream.getTracks().map(t => `${t.kind} (${t.readyState})`));
             
             // Ensure video plays
-            remoteVideo.play().catch(error => {
-                console.error('Error playing video:', error);
+            remoteVideo.play().then(() => {
+                console.log('✅ Video playing successfully');
+            }).catch(error => {
+                console.error('❌ Error playing video:', error);
                 // Try again after a short delay
                 setTimeout(() => {
-                    remoteVideo.play().catch(err => console.error('Retry play failed:', err));
+                    remoteVideo.play().then(() => {
+                        console.log('✅ Video playing after retry');
+                    }).catch(err => {
+                        console.error('❌ Retry play failed:', err);
+                    });
                 }, 500);
             });
         } else if (event.track) {
             // Fallback: create a new stream from the track
-            console.log('Creating stream from single track');
+            console.log('📹 Creating stream from single track');
             if (!remoteVideo.srcObject) {
                 const stream = new MediaStream();
                 stream.addTrack(event.track);
                 remoteVideo.srcObject = stream;
-                remoteVideo.play().catch(error => {
-                    console.error('Error playing video:', error);
+                console.log('✅ Created new stream with track');
+                remoteVideo.play().then(() => {
+                    console.log('✅ Video playing from new stream');
+                }).catch(error => {
+                    console.error('❌ Error playing video:', error);
                 });
             } else {
                 // Add track to existing stream
+                console.log('➕ Adding track to existing stream');
                 remoteVideo.srcObject.addTrack(event.track);
             }
+        } else {
+            console.warn('⚠️ No stream or track in event');
         }
     };
     
@@ -468,17 +499,25 @@ function setupViewerWebRTC(streamId) {
     socket.off('answer-viewer');
     socket.off('ice-candidate-viewer');
     
-    // Handle answer
-    socket.on('answer-viewer', async (data) => {
+    // Handle answer - use once to avoid duplicate handlers
+    const answerHandler = async (data) => {
         if (viewerPeerConnection && data.answer) {
             try {
+                console.log('✅ Viewer received answer from streamer');
                 await viewerPeerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-                console.log('Viewer set remote description');
+                console.log('✅ Viewer set remote description successfully');
             } catch (error) {
-                console.error('Error setting remote description:', error);
+                console.error('❌ Error setting remote description:', error);
             }
+        } else {
+            console.warn('⚠️ Received answer but no peer connection or answer data', { 
+                hasConnection: !!viewerPeerConnection, 
+                hasAnswer: !!data?.answer 
+            });
         }
-    });
+    };
+    
+    socket.off('answer-viewer').on('answer-viewer', answerHandler);
     
     // Handle ICE candidates from streamer
     socket.on('ice-candidate-viewer', async (data) => {
@@ -491,24 +530,28 @@ function setupViewerWebRTC(streamId) {
         }
     });
     
-    // Create and send offer
-    viewerPeerConnection.createOffer({
-        offerToReceiveVideo: true,
-        offerToReceiveAudio: true
-    })
-        .then(offer => {
-            return viewerPeerConnection.setLocalDescription(offer);
+    // Wait a bit for socket connection to be ready, then create and send offer
+    setTimeout(() => {
+        viewerPeerConnection.createOffer({
+            offerToReceiveVideo: true,
+            offerToReceiveAudio: true
         })
-        .then(() => {
-            socket.emit('offer', {
-                offer: viewerPeerConnection.localDescription,
-                streamId: streamId
+            .then(offer => {
+                console.log('Viewer created offer:', offer.type);
+                return viewerPeerConnection.setLocalDescription(offer);
+            })
+            .then(() => {
+                console.log('Viewer set local description, sending offer to streamer...');
+                socket.emit('offer', {
+                    offer: viewerPeerConnection.localDescription,
+                    streamId: streamId
+                });
+                console.log('✅ Viewer sent offer for stream:', streamId);
+            })
+            .catch(error => {
+                console.error('❌ Error creating offer:', error);
             });
-            console.log('Viewer sent offer');
-        })
-        .catch(error => {
-            console.error('Error creating offer:', error);
-        });
+    }, 500); // Small delay to ensure socket is ready
 }
 
 // Close viewer modal
